@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>括號配對檢查工具</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+    background: #f5f5f3;
+    color: #1a1a18;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+  }
+  .container { max-width: 760px; margin: 0 auto; }
+  header { margin-bottom: 1.75rem; }
+  header h1 { font-size: 22px; font-weight: 500; }
+  header p { font-size: 14px; color: #666; margin-top: 4px; }
+
+  textarea {
+    width: 100%;
+    height: 200px;
+    font-size: 13px;
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 12px;
+    resize: vertical;
+    background: #fff;
+    color: #1a1a18;
+    outline: none;
+    line-height: 1.6;
+  }
+  textarea:focus { border-color: #888; }
+
+  .controls { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+  button {
+    font-size: 13px;
+    padding: 7px 16px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #fff;
+    color: #1a1a18;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  button:hover { background: #f0f0ee; }
+  button.primary { background: #1a1a18; color: #fff; border-color: #1a1a18; }
+  button.primary:hover { background: #333; }
+  button.active { border-width: 2px; border-color: #1a1a18; font-weight: 500; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 14px 0;
+  }
+  .stat {
+    background: #fff;
+    border: 1px solid #e8e8e6;
+    border-radius: 8px;
+    padding: 12px 16px;
+    text-align: center;
+  }
+  .stat .num { font-size: 26px; font-weight: 500; }
+  .stat .lbl { font-size: 12px; color: #888; margin-top: 2px; }
+  .stat.err .num { color: #c0392b; }
+  .stat.ok .num  { color: #1d7a55; }
+
+  .filter-bar { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 13px; color: #666; }
+
+  .results { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .row {
+    background: #fff;
+    border: 1px solid #e8e8e6;
+    border-left: 3px solid #ccc;
+    border-radius: 8px;
+    padding: 9px 13px;
+    font-size: 13px;
+    font-family: "SF Mono", "Consolas", "Menlo", monospace;
+    word-break: break-all;
+    line-height: 1.6;
+  }
+  .row.ok  { border-left-color: #1d7a55; }
+  .row.err { border-left-color: #c0392b; }
+  .row .meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .linenum { font-size: 11px; color: #999; }
+  .tag {
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-family: -apple-system, sans-serif;
+  }
+  .tag-ok  { background: #e6f5ee; color: #0f6e47; }
+  .tag-err { background: #fdecea; color: #a32d2d; }
+
+  .empty { text-align: center; color: #aaa; font-size: 14px; padding: 2rem 0; }
+  footer { margin-top: 2rem; font-size: 12px; color: #bbb; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>括號配對檢查工具</h1>
+    <p>貼入關鍵字清單，逐行檢查 <code>(</code> 與 <code>)</code> 是否配對正確</p>
+  </header>
+
+  <textarea id="input" placeholder="貼上關鍵字內容，每行一組…"></textarea>
+
+  <div class="controls">
+    <button class="primary" onclick="run()">開始檢查</button>
+    <button onclick="loadSample()">載入範例</button>
+    <button onclick="clearAll()">清除</button>
+    <button onclick="copyErrors()">複製錯誤行</button>
+  </div>
+
+  <div class="stats" id="statsWrap" style="display:none">
+    <div class="stat"><div class="num" id="sTotal">0</div><div class="lbl">總行數</div></div>
+    <div class="stat err"><div class="num" id="sErr">0</div><div class="lbl">有問題</div></div>
+    <div class="stat ok"><div class="num" id="sOk">0</div><div class="lbl">正常</div></div>
+  </div>
+
+  <div class="filter-bar" id="filterBar" style="display:none">
+    顯示：
+    <button id="btnAll" onclick="setFilter('all')">全部</button>
+    <button id="btnErr" onclick="setFilter('err')">僅錯誤</button>
+    <button id="btnOk"  onclick="setFilter('ok')">僅正常</button>
+  </div>
+
+  <div class="results" id="results"></div>
+  <footer>括號配對檢查工具 · 純前端，不上傳任何資料</footer>
+</div>
+
+<script>
+const SAMPLE = `keyword
+包,eboy
+(包)(刺繡),(包)(70周年),L1621619
+(iPhone 12)(頂級)(耐衝擊,保護殼),(12 Pro)(頂級)(耐衝擊,保護殼)
+(iPhone 12)(全系列)(耐衝擊,防摔)(保護殼,手機殼)
+(iPhone 12 Pro Max)(頂級)(耐衝擊,保護殼
+G502 HERO,(G502)(有線)(滑鼠)
+(G502 LIGHTSPEED)(無線)(電競(滑鼠)
+(Pro X電競)(耳機麥克風)
+(MK220(無線)(鍵盤滑鼠組)
+皮带,皮帶`;
+
+let allRows = [];
+let curFilter = 'err';
+
+function check(line) {
+  let depth = 0;
+  const issues = [];
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '(') {
+      depth++;
+    } else if (line[i] === ')') {
+      if (depth === 0) issues.push({ type: 'extra_close', pos: i });
+      else depth--;
+    }
+  }
+  for (let i = 0; i < depth; i++) issues.push({ type: 'missing_close' });
+  return issues;
+}
+
+function describeIssues(issues) {
+  const extra   = issues.filter(i => i.type === 'extra_close').length;
+  const missing = issues.filter(i => i.type === 'missing_close').length;
+  const parts = [];
+  if (extra)   parts.push(`多了 ${extra} 個「)」`);
+  if (missing) parts.push(`少了 ${missing} 個「)」`);
+  return parts.join('　');
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function run() {
+  const text = document.getElementById('input').value;
+  if (!text.trim()) return;
+  allRows = text.split('\n').map((line, idx) => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    const issues = check(trimmed);
+    return { lineNum: idx + 1, text: trimmed, issues, hasErr: issues.length > 0 };
+  }).filter(Boolean);
+
+  const errCount = allRows.filter(r => r.hasErr).length;
+  document.getElementById('sTotal').textContent = allRows.length;
+  document.getElementById('sErr').textContent   = errCount;
+  document.getElementById('sOk').textContent    = allRows.length - errCount;
+  document.getElementById('statsWrap').style.display = 'grid';
+  document.getElementById('filterBar').style.display = 'flex';
+  setFilter(errCount > 0 ? 'err' : 'all');
+}
+
+function setFilter(f) {
+  curFilter = f;
+  ['btnAll','btnErr','btnOk'].forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById(f === 'all' ? 'btnAll' : f === 'err' ? 'btnErr' : 'btnOk').classList.add('active');
+  render();
+}
+
+function render() {
+  const filtered = allRows.filter(r =>
+    curFilter === 'all' ||
+    (curFilter === 'err' && r.hasErr) ||
+    (curFilter === 'ok'  && !r.hasErr)
+  );
+  const container = document.getElementById('results');
+  if (!filtered.length) {
+    container.innerHTML = '<div class="empty">沒有符合的項目</div>';
+    return;
+  }
+  container.innerHTML = filtered.map(r => {
+    const cls = r.hasErr ? 'err' : 'ok';
+    const tag = r.hasErr
+      ? `<span class="tag tag-err">⚠ ${describeIssues(r.issues)}</span>`
+      : `<span class="tag tag-ok">✓ 正常</span>`;
+    return `<div class="row ${cls}">
+      <div class="meta"><span class="linenum">行 ${r.lineNum}</span>${tag}</div>
+      <div>${esc(r.text)}</div>
+    </div>`;
+  }).join('');
+}
+
+function clearAll() {
+  document.getElementById('input').value = '';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('statsWrap').style.display = 'none';
+  document.getElementById('filterBar').style.display = 'none';
+  allRows = [];
+}
+
+function loadSample() {
+  document.getElementById('input').value = SAMPLE;
+  run();
+}
+
+function copyErrors() {
+  const errLines = allRows.filter(r => r.hasErr).map(r => r.text).join('\n');
+  if (!errLines) { alert('目前沒有錯誤行'); return; }
+  navigator.clipboard.writeText(errLines).then(() => alert('已複製 ' + allRows.filter(r=>r.hasErr).length + ' 行錯誤內容'));
+}
+</script>
+</body>
+</html>
